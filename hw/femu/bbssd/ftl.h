@@ -322,19 +322,11 @@ struct ssd {
     bool fdp_debug;    /* enable FDP FTL tracing */
 
     FemuCtrl *n;
+
+    uint64_t page_reads;
 };
 
 void ssd_init(FemuCtrl *n);
-
-// stats
-
-typedef struct Counter{
-
-    uint64_t page_reads;
-
-}Counter;
-
-extern Counter ctr;
 
 #ifdef FEMU_DEBUG_FTL
 #define ftl_debug(fmt, ...) \

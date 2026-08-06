@@ -773,8 +773,8 @@ static uint64_t ssd_advance_status(struct ssd *ssd, struct ppa *ppa, struct
                      lun->next_lun_avail_time;
         lun->next_lun_avail_time = nand_stime + spp->pg_rd_lat;
         lat = lun->next_lun_avail_time - cmd_stime;
-        qatomic_inc(&ctr.page_reads);
-        printf("Page reads = %lu\n", ctr.page_reads);
+        qatomic_inc(&ssd->page_reads);
+        printf("Page reads = %lu\n", ssd->page_reads);
 #if 0
         lun->next_lun_avail_time = nand_stime + spp->pg_rd_lat;
 
