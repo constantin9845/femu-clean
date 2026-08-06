@@ -1090,8 +1090,8 @@ static uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
     uint64_t lpn;
     uint64_t sublat, maxlat = 0;
 
-    //uint64_t size_kb = (nsecs * spp->secsz) / 1024;
-    //printf("[READ] Size = %lu\n", size_kb);
+    uint64_t size_kb = (nsecs * spp->secsz) / 1024;
+    printf("[READ] Size = %lu\n", size_kb);
 
     if (end_lpn >= spp->tt_pgs) {
         ftl_err("read past device geometry: end_lpn=%"PRIu64" tt_pgs=%d\n",
