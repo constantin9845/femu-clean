@@ -359,7 +359,7 @@ static void check_params(struct ssdparams *spp)
 static void ssd_init_params(struct ssdparams *spp, FemuCtrl *n)
 {
 
-    spp->page_reads = 0
+    spp->page_reads = 0;
 
     spp->secsz = n->bb_params.secsz; // 512
     spp->secs_per_pg = n->bb_params.secs_per_pg; // 8
