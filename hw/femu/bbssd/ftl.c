@@ -770,6 +770,8 @@ static uint64_t ssd_advance_status(struct ssd *ssd, struct ppa *ppa, struct
                      lun->next_lun_avail_time;
         lun->next_lun_avail_time = nand_stime + spp->pg_rd_lat;
         lat = lun->next_lun_avail_time - cmd_stime;
+        qatomic_inc(&ctr.page_reads);
+        printf("Page reads = %lu\n", ctr.page_reads);
 #if 0
         lun->next_lun_avail_time = nand_stime + spp->pg_rd_lat;
 
@@ -1086,7 +1088,7 @@ static uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
     uint64_t sublat, maxlat = 0;
 
     uint64_t size_kb = (nsecs * spp->secsz) / 1024;
-    printf("[READ] Size = %lu\n", size_kb);
+    //printf("[READ] Size = %lu\n", size_kb);
 
     if (end_lpn >= spp->tt_pgs) {
         ftl_err("read past device geometry: end_lpn=%"PRIu64" tt_pgs=%d\n",
@@ -1133,7 +1135,7 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
     int r;
 
     uint64_t size_kb = (len * spp->secsz) / 1024;
-    printf("[Write] Size = %lu\n", size_kb);
+    //printf("[Write] Size = %lu\n", size_kb);
 
     if (end_lpn >= spp->tt_pgs) {
         ftl_err("write past device geometry: end_lpn=%"PRIu64" tt_pgs=%d\n",
