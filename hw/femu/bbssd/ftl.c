@@ -359,7 +359,7 @@ static void check_params(struct ssdparams *spp)
 static void ssd_init_params(struct ssdparams *spp, FemuCtrl *n)
 {
 
-    ctr.page_reads = 0;
+    spp->page_reads = 0
 
     spp->secsz = n->bb_params.secsz; // 512
     spp->secs_per_pg = n->bb_params.secs_per_pg; // 8
@@ -773,8 +773,8 @@ static uint64_t ssd_advance_status(struct ssd *ssd, struct ppa *ppa, struct
                      lun->next_lun_avail_time;
         lun->next_lun_avail_time = nand_stime + spp->pg_rd_lat;
         lat = lun->next_lun_avail_time - cmd_stime;
-        qatomic_inc(&ssd->page_reads);
-        printf("Page reads = %lu\n", ssd->page_reads);
+        qatomic_inc(&ssd->sp.page_reads);
+        printf("Page reads = %lu\n", ssd->sp.page_reads);
 #if 0
         lun->next_lun_avail_time = nand_stime + spp->pg_rd_lat;
 

@@ -163,6 +163,8 @@ struct ssdparams {
     /* FDP: reclaim unit geometry */
     int lines_per_ru;
     int total_ru_cnt;
+
+    uint64_t page_reads;
 };
 
 typedef struct line {
@@ -322,8 +324,6 @@ struct ssd {
     bool fdp_debug;    /* enable FDP FTL tracing */
 
     FemuCtrl *n;
-
-    uint64_t page_reads;
 };
 
 void ssd_init(FemuCtrl *n);
