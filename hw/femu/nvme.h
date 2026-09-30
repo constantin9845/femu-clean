@@ -1798,6 +1798,7 @@ enum {
     FEMU_CSD_MODE = 4,
     FEMU_SMARTSSD_MODE,
     FEMU_KVSSD_MODE,
+    FEMU_HOST_FTL_MODE = 99,
 };
 
 enum {
@@ -1950,6 +1951,21 @@ static inline uint16_t nvme_check_mdts(FemuCtrl *n, size_t len)
 
 #define MN_MAX_LEN (64)
 #define ID_MAX_LEN (4)
+
+
+// Host FTL MODE
+#define HOST_FTL (1)
+
+// ssd geometry components must be power of 2
+static inline uint64_t ppa_to_dram_offset(FemuCtrl *n, uint64_t raw_ppa, uint8_t lbads){
+    uint64_t sector_idx = raw_ppa & 0x7FFFFFFFFFFFFFFF000ULL;
+    
+    uint64_t dram_offset = sector_idx << lbads;
+
+    assert(dram_offset < n->mbe->size);
+
+    return dram_offset;
+}
 
 //#define FEMU_DEBUG_NVME
 #ifdef FEMU_DEBUG_NVME

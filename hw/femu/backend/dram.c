@@ -106,7 +106,7 @@ int backend_rw(SsdDramBackend *b, QEMUSGList *qsg, uint64_t *lbal, bool is_write
             ++sg_cur_index;
         }
 
-        if (b->femu_mode == FEMU_OCSSD_MODE) {
+        if (b->femu_mode == FEMU_OCSSD_MODE || HOST_FTL == 1) {
             mb_oft = lbal[sg_cur_index];
         } else if (b->femu_mode == FEMU_BBSSD_MODE ||
                    b->femu_mode == FEMU_NOSSD_MODE ||
