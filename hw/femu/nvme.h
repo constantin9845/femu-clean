@@ -1958,7 +1958,8 @@ static inline uint16_t nvme_check_mdts(FemuCtrl *n, size_t len)
 
 // ssd geometry components must be power of 2
 static inline uint64_t ppa_to_dram_offset(FemuCtrl *n, uint64_t raw_ppa, uint8_t lbads){
-    uint64_t sector_idx = raw_ppa & 0x7FFFFFFFFFFFFFFF000ULL;
+    
+    uint64_t sector_idx = raw_ppa & ~(1ULL << 63);
     
     uint64_t dram_offset = sector_idx << lbads;
 
