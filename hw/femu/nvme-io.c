@@ -85,7 +85,7 @@ static void nvme_process_sq_io(void *opaque, int index_poller)
      * true for NoSSD; every other mode keeps the FTL-thread completion path
      * untouched.
      */
-    bool inline_mode = (NOSSD(n) && n->hiops_inline) || HOST_FTL == 1;
+    bool inline_mode = (NOSSD(n) && n->hiops_inline) || (HOST_FTL == 1 && sq->sqid > 0);
     bool did_isr = false;
 
     nvme_update_sq_tail(sq);
@@ -461,7 +461,7 @@ uint16_t nvme_rw(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd, NvmeRequest *req)
 
     req->is_write = (rw->opcode == NVME_CMD_WRITE) ? 1 : 0;
 
-    if(HOST_FTL == 1){
+    if(HOST_FTL == 1 && ((slba & (1ULL << 63)) != 0)){
         // convert raw ppa to DRAM offset
         data_offset = ppa_to_dram_offset(n, slba, data_shift);
     }
