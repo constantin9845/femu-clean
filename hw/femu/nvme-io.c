@@ -452,7 +452,7 @@ uint16_t nvme_rw(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd, NvmeRequest *req)
     const uint16_t ms = le16_to_cpu(ns->id_ns.lbaf[lba_index].ms);
     const uint8_t data_shift = ns->id_ns.lbaf[lba_index].lbads;
     uint64_t data_size = (uint64_t)nlb << data_shift;
-    uint64_t data_offset = slba << data_shift;
+    uint64_t data_offset;
     uint64_t meta_size = nlb * ms;
     uint64_t elba = slba + nlb;
     uint16_t err;
@@ -461,11 +461,18 @@ uint16_t nvme_rw(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd, NvmeRequest *req)
 
     req->is_write = (rw->opcode == NVME_CMD_WRITE) ? 1 : 0;
 
-    if(HOST_FTL == 1 && ((slba & (1ULL << 63)) != 0)){
+    bool is_host_ftl_req = HOST_FTL == 1 && ((slba & (1ULL << 63)) != 0);
+
+    if(is_host_ftl_req){
         // convert raw ppa to DRAM offset
         data_offset = ppa_to_dram_offset(n, slba, data_shift);
+
+        if (data_offset + data_size > n->mbe->size) {
+            data_offset = data_offset % (n->mbe->size - data_size + 1);
+        }
     }
     else{
+        data_offset = slba << data_shift;
         err = femu_nvme_rw_check_req(n, ns, cmd, req, slba, elba, nlb, ctrl,
                                  data_size, meta_size);
         if (err)
@@ -501,7 +508,7 @@ uint16_t nvme_rw(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd, NvmeRequest *req)
      * NoSSD does not inject uncorrectable read errors, so skipping that check
      * (done on the generic read path) is correct here.
      */
-    if (NOSSD(n) && n->hiops_inline && !n->cmbsz && prp1) {
+    if (!is_host_ftl_req && NOSSD(n) && n->hiops_inline && !n->cmbsz && prp1) {
         uint64_t pg = n->page_size;
         uint64_t off0 = prp1 & (pg - 1);
         uint64_t len0 = MIN(data_size, pg - off0);
