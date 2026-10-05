@@ -461,7 +461,7 @@ uint16_t nvme_rw(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd, NvmeRequest *req)
     req->is_write = (rw->opcode == NVME_CMD_WRITE) ? 1 : 0;
 
     //bool is_host_ftl_req = HOST_FTL == 1 && ((slba & (1ULL << 63)) != 0);
-    bool is_host_ftl_req = (HOST_FTL == 1)
+    bool is_host_ftl_req = (HOST_FTL == 1);
 
     if(is_host_ftl_req){
         // convert raw ppa to DRAM offset
