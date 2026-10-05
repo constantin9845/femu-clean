@@ -458,10 +458,10 @@ uint16_t nvme_rw(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd, NvmeRequest *req)
     uint16_t err;
     int ret;
 
-
     req->is_write = (rw->opcode == NVME_CMD_WRITE) ? 1 : 0;
 
-    bool is_host_ftl_req = HOST_FTL == 1 && ((slba & (1ULL << 63)) != 0);
+    //bool is_host_ftl_req = HOST_FTL == 1 && ((slba & (1ULL << 63)) != 0);
+    bool is_host_ftl_req = (HOST_FTL == 1)
 
     if(is_host_ftl_req){
         // convert raw ppa to DRAM offset
@@ -471,7 +471,7 @@ uint16_t nvme_rw(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd, NvmeRequest *req)
             data_offset = data_offset % (n->mbe->size - data_size + 1);
         }
 
-        printf("Host_FTL write in nvme_rw\n");
+        printf("enter nvme_rw\n");
     }
     else{
         data_offset = slba << data_shift;
