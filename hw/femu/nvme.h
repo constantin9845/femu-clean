@@ -1966,7 +1966,7 @@ static inline uint16_t nvme_check_mdts(FemuCtrl *n, size_t len)
 #define CH_B    (12)
 #define RSV_B   (1)
 
-struct ppa {
+struct ppa_host {
     union {
         struct {
             uint64_t blk : BLK_B; /* Bit  0..15 : Block ID (65,536 max) */
@@ -1982,12 +1982,12 @@ struct ppa {
     };
 };
 
-typedef struct ppa ppa_t;
+typedef struct ppa_host ppa_t;
 
 // ssd geometry components must be power of 2
 static inline uint64_t ppa_to_dram_offset(FemuCtrl *n, uint64_t raw_ppa, uint8_t lbads){
     
-    struct ppa p;
+    struct ppa_host p;
     p.ppa = raw_ppa;
 
     BbCtrlParams *pms = &n->bb_params;
