@@ -1960,6 +1960,7 @@ static inline uint16_t nvme_check_mdts(FemuCtrl *n, size_t len)
 static inline uint64_t ppa_to_dram_offset(FemuCtrl *n, uint64_t raw_ppa, uint8_t lbads){
 
     struct ppa p;
+    p.ppa = raw_ppa;
 
     uint64_t lba = ((uint64_t)p.g.ch  * n->params.sec_per_ch)  +
                    ((uint64_t)p.g.lun * n->params.sec_per_lun) +
