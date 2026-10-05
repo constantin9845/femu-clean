@@ -2008,10 +2008,10 @@ static inline uint64_t ppa_to_dram_offset(FemuCtrl *n, uint64_t raw_ppa, uint8_t
     uint64_t dram_offset = lba << lbads;
 
     if (dram_offset >= n->mbe->size) {
-        femu_err("[OCSSD PPA ERR] LBA: %" PRIu64 " | DRAM Offset: %" PRIu64 
+        printf("[OCSSD PPA ERR] LBA: %" PRIu64 " | DRAM Offset: %" PRIu64 
                  " >= DRAM Size: %" PRIu64 "\n",
                  lba, dram_offset, (uint64_t)n->mbe->size);
-        femu_err("   PPA details -> ch:%u lun:%u pl:%u blk:%u pg:%u sec:%u rsv:%u\n",
+        printf("   PPA details -> ch:%u lun:%u pl:%u blk:%u pg:%u sec:%u rsv:%u\n",
                  p.g.ch, p.g.lun, p.g.pl, p.g.blk, p.g.pg, p.g.sec, p.g.rsv);
     }
 
