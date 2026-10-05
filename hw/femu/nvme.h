@@ -1958,24 +1958,24 @@ static inline uint16_t nvme_check_mdts(FemuCtrl *n, size_t len)
 
 #if HOST_FTL == 1
 
-#define BLK_BITS    (16)
-#define PG_BITS     (16)
-#define SEC_BITS    (8)
-#define PL_BITS     (4)
-#define LUN_BITS    (7)
-#define CH_BITS     (12)
-#define RSV_BITS    (1)
+#define BLK_B   (16)
+#define PG_B    (16)
+#define SEC_B   (8)
+#define PL_B    (4)
+#define LUN_B   (7)
+#define CH_B    (12)
+#define RSV_B   (1)
 
 struct ppa {
     union {
         struct {
-            uint64_t blk : BLK_BITS; /* Bit  0..15 : Block ID (65,536 max) */
-            uint64_t pg  : PG_BITS;  /* Bit 16..31 : Page ID (65,536 max)  */
-            uint64_t sec : SEC_BITS; /* Bit 32..39 : Sector ID (256 max)   */
-            uint64_t pl  : PL_BITS;  /* Bit 40..43 : Plane ID (16 max)     */
-            uint64_t lun : LUN_BITS; /* Bit 44..50 : LUN ID (128 max)      */
-            uint64_t ch  : CH_BITS;  /* Bit 51..62 : Channel ID (4,096 max)*/
-            uint64_t rsv : RSV_BITS; /* Bit 63     : Host FTL Flag (1)    */
+            uint64_t blk : BLK_B; /* Bit  0..15 : Block ID (65,536 max) */
+            uint64_t pg  : PG_B;  /* Bit 16..31 : Page ID (65,536 max)  */
+            uint64_t sec : SEC_B; /* Bit 32..39 : Sector ID (256 max)   */
+            uint64_t pl  : PL_B;  /* Bit 40..43 : Plane ID (16 max)     */
+            uint64_t lun : LUN_B; /* Bit 44..50 : LUN ID (128 max)      */
+            uint64_t ch  : CH_B;  /* Bit 51..62 : Channel ID (4,096 max)*/
+            uint64_t rsv : RSV_B; /* Bit 63     : Host FTL Flag (1)    */
         } g;
 
         uint64_t ppa; /* 64-bit raw scalar representation */
