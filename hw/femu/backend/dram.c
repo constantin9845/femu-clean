@@ -100,6 +100,9 @@ int backend_rw(SsdDramBackend *b, QEMUSGList *qsg, uint64_t *lbal, bool is_write
             femu_err("dma_memory_rw error\n");
         }
 
+        femu_debug("[BACKEND WRITE LOG] Offset: %" PRIu64 " | Length: %" PRIu64 " bytes | SG Entry: %d\n",
+                       mb_oft, (uint64_t)cur_len, sg_cur_index);
+
         sg_cur_byte += cur_len;
         if (sg_cur_byte == qsg->sg[sg_cur_index].len) {
             sg_cur_byte = 0;
