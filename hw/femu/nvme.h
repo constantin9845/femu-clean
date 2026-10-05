@@ -1958,10 +1958,25 @@ static inline uint16_t nvme_check_mdts(FemuCtrl *n, size_t len)
 
 // ssd geometry components must be power of 2
 static inline uint64_t ppa_to_dram_offset(FemuCtrl *n, uint64_t raw_ppa, uint8_t lbads){
+
+    struct ppa p;
+
+    uint64_t lba = ((uint64_t)p.g.ch  * n->params.sec_per_ch)  +
+                   ((uint64_t)p.g.lun * n->params.sec_per_lun) +
+                   ((uint64_t)p.g.pl  * n->params.sec_per_pl)  +
+                   ((uint64_t)p.g.blk * n->params.sec_per_blk) +
+                   ((uint64_t)p.g.pg  * n->params.sec_per_pg)  +
+                   (uint64_t)p.g.sec;
+
     
-    uint64_t sector_idx = raw_ppa & ~(1ULL << 63);
-    
-    uint64_t dram_offset = sector_idx << lbads;
+    uint64_t dram_offset = lba << lbads;
+
+    if (dram_offset >= n->mbe->size) {
+        femu_err("[PPA ERR] LBA: %" PRIu64 " | DRAM Offset: %" PRIu64 " >= DRAM Size: %" PRIu64 "\n",
+                 lba, dram_offset, (uint64_t)n->mbe->size);
+        femu_err("   PPA breakdown -> ch:%u lun:%u pl:%u blk:%u pg:%u sec:%u rsv:%u\n",
+                 p.g.ch, p.g.lun, p.g.pl, p.g.blk, p.g.pg, p.g.sec, p.g.rsv);
+    }
 
     assert(dram_offset < n->mbe->size);
 
