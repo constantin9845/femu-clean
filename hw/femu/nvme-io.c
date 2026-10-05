@@ -470,6 +470,8 @@ uint16_t nvme_rw(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd, NvmeRequest *req)
         if (data_offset + data_size > n->mbe->size) {
             data_offset = data_offset % (n->mbe->size - data_size + 1);
         }
+
+        printf("Host_FTL write in nvme_rw\n")
     }
     else{
         data_offset = slba << data_shift;
