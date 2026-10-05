@@ -1956,26 +1956,62 @@ static inline uint16_t nvme_check_mdts(FemuCtrl *n, size_t len)
 // Host FTL MODE
 #define HOST_FTL (1)
 
+#if HOST_FTL == 1
+
+#define BLK_BITS    (16)
+#define PG_BITS     (16)
+#define SEC_BITS    (8)
+#define PL_BITS     (4)
+#define LUN_BITS    (7)
+#define CH_BITS     (12)
+#define RSV_BITS    (1)
+
+struct ppa {
+    union {
+        struct {
+            uint64_t blk : BLK_BITS; /* Bit  0..15 : Block ID (65,536 max) */
+            uint64_t pg  : PG_BITS;  /* Bit 16..31 : Page ID (65,536 max)  */
+            uint64_t sec : SEC_BITS; /* Bit 32..39 : Sector ID (256 max)   */
+            uint64_t pl  : PL_BITS;  /* Bit 40..43 : Plane ID (16 max)     */
+            uint64_t lun : LUN_BITS; /* Bit 44..50 : LUN ID (128 max)      */
+            uint64_t ch  : CH_BITS;  /* Bit 51..62 : Channel ID (4,096 max)*/
+            uint64_t rsv : RSV_BITS; /* Bit 63     : Host FTL Flag (1)    */
+        } g;
+
+        uint64_t ppa; /* 64-bit raw scalar representation */
+    };
+};
+
+typedef struct ppa ppa_t;
+
 // ssd geometry components must be power of 2
 static inline uint64_t ppa_to_dram_offset(FemuCtrl *n, uint64_t raw_ppa, uint8_t lbads){
-
+    
     struct ppa p;
     p.ppa = raw_ppa;
 
-    uint64_t lba = ((uint64_t)p.g.ch  * n->params.sec_per_ch)  +
-                   ((uint64_t)p.g.lun * n->params.sec_per_lun) +
-                   ((uint64_t)p.g.pl  * n->params.sec_per_pl)  +
-                   ((uint64_t)p.g.blk * n->params.sec_per_blk) +
-                   ((uint64_t)p.g.pg  * n->params.sec_per_pg)  +
+    BbCtrlParams *pms = &n->bb_params;
+
+    uint64_t sec_per_pg  = pms->secs_per_pg;
+    uint64_t sec_per_blk = sec_per_pg  * pms->pgs_per_blk;
+    uint64_t sec_per_pl  = sec_per_blk * pms->blks_per_pl;
+    uint64_t sec_per_lun = sec_per_pl  * pms->pls_per_lun;
+    uint64_t sec_per_ch  = sec_per_lun * pms->luns_per_ch;
+
+    uint64_t lba = ((uint64_t)p.g.ch  * sec_per_ch)  +
+                   ((uint64_t)p.g.lun * sec_per_lun) +
+                   ((uint64_t)p.g.pl  * sec_per_pl)  +
+                   ((uint64_t)p.g.blk * sec_per_blk) +
+                   ((uint64_t)p.g.pg  * sec_per_pg)  +
                    (uint64_t)p.g.sec;
 
-    
     uint64_t dram_offset = lba << lbads;
 
     if (dram_offset >= n->mbe->size) {
-        femu_err("[PPA ERR] LBA: %" PRIu64 " | DRAM Offset: %" PRIu64 " >= DRAM Size: %" PRIu64 "\n",
+        femu_err("[OCSSD PPA ERR] LBA: %" PRIu64 " | DRAM Offset: %" PRIu64 
+                 " >= DRAM Size: %" PRIu64 "\n",
                  lba, dram_offset, (uint64_t)n->mbe->size);
-        femu_err("   PPA breakdown -> ch:%u lun:%u pl:%u blk:%u pg:%u sec:%u rsv:%u\n",
+        femu_err("   PPA details -> ch:%u lun:%u pl:%u blk:%u pg:%u sec:%u rsv:%u\n",
                  p.g.ch, p.g.lun, p.g.pl, p.g.blk, p.g.pg, p.g.sec, p.g.rsv);
     }
 
@@ -1983,6 +2019,8 @@ static inline uint64_t ppa_to_dram_offset(FemuCtrl *n, uint64_t raw_ppa, uint8_t
 
     return dram_offset;
 }
+
+#endif
 
 //#define FEMU_DEBUG_NVME
 #ifdef FEMU_DEBUG_NVME
