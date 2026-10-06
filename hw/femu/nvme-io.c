@@ -567,7 +567,7 @@ mapped:
 
     ret = backend_rw(n->mbe, &req->qsg, &data_offset, req->is_write);
     if (!ret) {
-        if (req->is_write) {
+        if (req->is_write && !is_host_ftl_req) {
             nvme_mark_written(ns, slba, nlb);
         }
         return NVME_SUCCESS;
