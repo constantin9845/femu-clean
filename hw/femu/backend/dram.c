@@ -105,7 +105,7 @@ int backend_rw(SsdDramBackend *b, QEMUSGList *qsg, uint64_t *lbal, bool is_write
                        mb_oft, (uint64_t)cur_len, sg_cur_index);
         }
         else{
-            printf("[BACKEND WRITE LOG] Offset: %" PRIu64 " | Length: %" PRIu64 " bytes | SG Entry: %d\n",
+            printf("[BACKEND READ LOG] Offset: %" PRIu64 " | Length: %" PRIu64 " bytes | SG Entry: %d\n",
                        mb_oft, (uint64_t)cur_len, sg_cur_index);
         }
         
