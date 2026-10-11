@@ -465,6 +465,10 @@ uint16_t nvme_rw(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd, NvmeRequest *req)
 
     if(is_host_ftl_req){
         // convert raw ppa to DRAM offset
+        printf("[HOST FTL] slba/raw PPA = 0x%016" PRIx64
+                    ", nlb=%u, data_size=%" PRIu64 "\n",
+                    slba, nlb, data_size);
+                    
         data_offset = ppa_to_dram_offset(n, slba, data_shift);
 
         if (data_offset + data_size > n->mbe->size) {
