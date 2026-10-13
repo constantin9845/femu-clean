@@ -465,7 +465,7 @@ uint16_t nvme_rw(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd, NvmeRequest *req)
     if(is_host_ftl_req){
 
         // clear host ftl bit
-        slba &= ~(1ULL << 61);
+        //slba &= ~(1ULL << 61);
 
         // read uses in page offset
         if(!req->is_write){
