@@ -478,8 +478,8 @@ uint16_t nvme_rw(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd, NvmeRequest *req)
 
             // convert raw ppa to DRAM offset
             printf("[HOST FTL] slba/raw PPA = 0x%016" PRIx64
-                        ", nlb=%u, data_size=%" PRIu64 "\n",
-                        clean_ppa, nlb, data_size);
+                        ", nlb=%u, data_size=%" PRIu64 " [FEAT? = %d]\n",
+                        clean_ppa, nlb, data_size, feature_type);
             
             
             data_offset = ppa_to_dram_offset(n, clean_ppa, data_shift);
