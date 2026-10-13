@@ -1958,6 +1958,9 @@ static inline uint16_t nvme_check_mdts(FemuCtrl *n, size_t len)
 
 #if HOST_FTL == 1
 
+#define FEAT_SIZE (4096)
+#define ACT_SIZE (1024)
+
 #define BLK_B   (16)
 #define PG_B    (16)
 #define SEC_B   (8)
