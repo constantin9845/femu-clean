@@ -464,6 +464,7 @@ uint16_t nvme_rw(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd, NvmeRequest *req)
 
     if(is_host_ftl_req){
 
+        // read uses in page offset
         if(!req->is_write){
 
             // unpack in-page offset from plane bits
@@ -477,7 +478,7 @@ uint16_t nvme_rw(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd, NvmeRequest *req)
             
             
             data_offset = ppa_to_dram_offset(n, clean_ppa, data_shift);
-            data_offset += row_offset * 4096;
+            data_offset += row_offset * 4096; // *feature_size
         }
         else{
             // convert raw ppa to DRAM offset
