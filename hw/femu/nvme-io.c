@@ -462,7 +462,12 @@ uint16_t nvme_rw(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd, NvmeRequest *req)
 
     bool is_host_ftl_req = (HOST_FTL == 1) && ((slba & (1ULL << 61)) != 0);
 
-    printf("Request arrived to %s | [SLBA = %lu]\n", req->is_write ? "write" : "read", slba);
+    printf(
+        "[NVME RW ENTRY] opcode=0x%x slba=0x%016lx nlb=%u\n",
+        rw->opcode,
+        (unsigned long)le64_to_cpu(rw->slba),
+        le16_to_cpu(rw->nlb) + 1
+    );
 
     if(is_host_ftl_req){
 
