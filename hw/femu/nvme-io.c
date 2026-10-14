@@ -464,8 +464,6 @@ uint16_t nvme_rw(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd, NvmeRequest *req)
 
     if(is_host_ftl_req){
 
-        printf("Entered host ftl!\n");
-
         // clear host ftl bit
         slba = slba & ~(1ULL << 61);
 
