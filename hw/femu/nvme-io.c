@@ -460,14 +460,19 @@ uint16_t nvme_rw(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd, NvmeRequest *req)
 
     req->is_write = (rw->opcode == NVME_CMD_WRITE) ? 1 : 0;
 
-    bool is_host_ftl_req = (HOST_FTL == 1) && ((slba & (1ULL << 63)) != 0);
+    bool is_host_ftl_req = (HOST_FTL == 1) && ((slba & (1ULL << 61)) != 0);
 
     if(is_host_ftl_req){
+
+        printf("Entered host ftl!\n");
 
         // read uses in page offset
         if(!req->is_write){
 
-            // extract data type from bit 62
+            // clear host ftl bit
+            slba = slba & ~(1ULL << 61);
+
+            // extract data type from bit 62 and set to zero
             bool feature_type = (slba & (1ULL << 62)) != 0;
             slba = slba & ~((1ULL << 63) | (1ULL << 62));
 
