@@ -466,11 +466,11 @@ uint16_t nvme_rw(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd, NvmeRequest *req)
 
         printf("Entered host ftl!\n");
 
+        // clear host ftl bit
+        slba = slba & ~(1ULL << 61);
+
         // read uses in page offset
         if(!req->is_write){
-
-            // clear host ftl bit
-            slba = slba & ~(1ULL << 61);
 
             // extract data type from bit 62 and set to zero
             bool feature_type = (slba & (1ULL << 62)) != 0;
