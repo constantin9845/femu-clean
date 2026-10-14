@@ -462,7 +462,7 @@ uint16_t nvme_rw(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd, NvmeRequest *req)
 
     bool is_host_ftl_req = (HOST_FTL == 1) && ((slba & (1ULL << 61)) != 0);
 
-    printf("Request arrived to %s\n", req->is_write ? "write" : "read");
+    printf("Request arrived to %s | [SLBA = %u]\n", req->is_write ? "write" : "read", slba);
 
     if(is_host_ftl_req){
 
