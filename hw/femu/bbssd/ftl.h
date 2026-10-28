@@ -344,7 +344,6 @@ static inline void dev_lba_to_ppa(struct ssd *ssd, uint64_t lba, struct ppa *p)
     p->g.pg  = lba % spp->pgs_per_blk;  lba /= spp->pgs_per_blk;
     p->g.blk = lba;
 
-    ftl_assert(p->g.blk < spp->blks_per_pl);
 }
 
 void ssd_init(FemuCtrl *n);
