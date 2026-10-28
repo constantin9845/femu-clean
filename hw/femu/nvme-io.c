@@ -452,126 +452,29 @@ uint16_t nvme_rw(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd, NvmeRequest *req)
     const uint16_t ms = le16_to_cpu(ns->id_ns.lbaf[lba_index].ms);
     const uint8_t data_shift = ns->id_ns.lbaf[lba_index].lbads;
     uint64_t data_size = (uint64_t)nlb << data_shift;
-    /*
-     * Address the backend within this namespace's slice. backend_offset is 0 for
-     * the first namespace, so single-namespace addressing is unchanged; without it
-     * every namespace would start at backend offset 0 and alias the others.
-     */
-    uint64_t data_offset = ns->backend_offset + (slba << data_shift);
+    uint64_t data_offset = slba << data_shift;
     uint64_t meta_size = nlb * ms;
-    /* interleaved metadata counts towards the transfer, and so MDTS */
-    bool extended = meta_size && NVME_ID_NS_FLBAS_EXTENDED(ns->id_ns.flbas);
-    uint64_t mptr = le64_to_cpu(rw->mptr);
-    g_autofree uint8_t *mbuf = NULL;
     uint64_t elba = slba + nlb;
     uint16_t err;
     int ret;
 
     req->is_write = (rw->opcode == NVME_CMD_WRITE) ? 1 : 0;
-    if (req->is_write) {
-        nvme_note_user_write(n);
-    }
 
-    if (n->streams && ns->streams_enabled && req->is_write &&
-        ((ctrl >> 4) & 15) > 1) {
-        return NVME_INVALID_FIELD | NVME_DNR;
-    }
-    if (req->is_write && nvme_dp_dtype_invalid(ns, (ctrl >> 4) & 15)) {
-        return NVME_INVALID_FIELD | NVME_DNR;
-    }
-
-    if (femu_pi_type(ns) && ms == 8 && (ctrl & NVME_RW_PRINFO_PRACT)) {
-        extended = false;
-    }
     err = femu_nvme_rw_check_req(n, ns, cmd, req, slba, elba, nlb, ctrl,
-                                 extended ? data_size + meta_size : data_size,
-                                 meta_size);
+                                 data_size, meta_size);
     if (err)
         return err;
-
-    if (n->power_loss && req->is_write) {
-        uint8_t *data = g_malloc(data_size);
-
-        err = dma_write_cmd(n, cmd, data, data_size);
-        if (err) {
-            g_free(data);
-            return err;
-        }
-        req->write_data = data;
-        req->slba = slba;
-        req->nlb = nlb;
-        return NVME_SUCCESS;
-    }
-
-    if (n->power_loss) {
-        req->slba = slba;
-        req->nlb = nlb;
-        backend_lock_range(n->mbe, data_offset, data_size);
-        err = dma_read_cmd(n, cmd,
-                           (uint8_t *)n->mbe->logical_space + data_offset,
-                           data_size);
-        backend_unlock_range(n->mbe, data_offset, data_size);
-        return err;
-    }
-
-    if (femu_pi_type(ns)) {
-        return femu_pi_rw(n, ns, cmd, req);
-    }
-    if (extended) {
-        return nvme_rw_extended(n, ns, cmd, req, slba, nlb, data_offset);
-    }
-
-    /*
-     * Separate metadata travels through one contiguous, dword aligned buffer
-     * at MPTR, whichever way the data does; only PSDT 10b would make MPTR an
-     * SGL descriptor, and that is not offered. A write's metadata is taken
-     * before any data moves and stored only once the data is, so a bad MPTR
-     * leaves the blocks as they were rather than new data with old metadata.
-     */
-    if (meta_size) {
-        if (cmd->psdt == NVME_PSDT_SGL_MPTR_SGL || (mptr & 0x3)) {
-            nvme_set_error_page(n, req->sq->sqid, cmd->cid, NVME_INVALID_FIELD,
-                                offsetof(NvmeRwCmd, mptr), 0, ns->id);
-            return NVME_INVALID_FIELD | NVME_DNR;
-        }
-        if (req->is_write) {
-            /*
-             * Take all of both before storing either: a transfer that fails
-             * part way must leave the blocks as they were, data and metadata.
-             */
-            g_autofree uint8_t *dbuf = g_malloc(data_size);
-
-            mbuf = g_malloc(meta_size);
-            if (femu_dma_read(n, mptr, mbuf, meta_size)) {
-                return NVME_DATA_TRAS_ERROR | NVME_DNR;
-            }
-            err = dma_write_cmd(n, cmd, dbuf, data_size);
-            if (err) {
-                return err;
-            }
-            qemu_mutex_lock(&ns->mdata_lock);
-            backend_lock_range(n->mbe, data_offset, data_size);
-            memcpy((uint8_t *)n->mbe->logical_space + data_offset, dbuf,
-                   data_size);
-            backend_unlock_range(n->mbe, data_offset, data_size);
-            memcpy(ns->mdata + slba * ms, mbuf, meta_size);
-            qemu_mutex_unlock(&ns->mdata_lock);
-            req->slba = slba;
-            req->nlb = nlb;
-            req->status = NVME_SUCCESS;
-            nvme_mark_written(ns, slba, nlb);
-            return NVME_SUCCESS;
-        }
-    }
 
     /*
      * SGL data transfers map their scatter-gather list here and join the
      * shared backend path below, bypassing the PRP fast path and PRP mapper.
      */
     if (cmd->psdt) {
-        err = nvme_rw_map_sgl(n, ns, cmd, req, data_size);
-        if (err) {
-            return err;
+        if (!n->sgl || cmd->psdt > NVME_PSDT_SGL_MPTR_SGL ||
+            nvme_map_sgl(&req->qsg, &req->iov, cmd->dptr.sgl, data_size, n)) {
+            nvme_set_error_page(n, req->sq->sqid, cmd->cid, NVME_INVALID_FIELD,
+                                offsetof(NvmeRwCmd, prp1), 0, ns->id);
+            return NVME_INVALID_FIELD | NVME_DNR;
         }
         goto mapped;
     }
@@ -595,9 +498,10 @@ uint16_t nvme_rw(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd, NvmeRequest *req)
         uint64_t off0 = prp1 & (pg - 1);
         uint64_t len0 = MIN(data_size, pg - off0);
         uint64_t rem = data_size - len0;
-        /* a misaligned first entry takes the checked path below */
-        if (NS_NOSSD(ns) && !meta_size && !(prp1 & 0x3) &&
-            (rem == 0 || (rem <= pg && prp2 && (prp2 & (pg - 1)) == 0))) {
+        if (rem == 0 || (rem <= pg && prp2 && (prp2 & (pg - 1)) == 0)) {
+            DMADirection dir = req->is_write ? DMA_DIRECTION_TO_DEVICE
+                                             : DMA_DIRECTION_FROM_DEVICE;
+            AddressSpace *as = pci_get_address_space(&n->parent_obj);
             uint8_t *mb = n->mbe->logical_space;
             uint64_t moff = data_offset;
 
@@ -609,58 +513,29 @@ uint16_t nvme_rw(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd, NvmeRequest *req)
                 req->fdp_dtype = (le16_to_cpu(rw->control) >> 4) & 0xF;
             }
 
-            backend_lock_range(n->mbe, moff, data_size);
-            if (femu_dma_rw(n, prp1, mb + moff, len0, !req->is_write)) {
-                backend_unlock_range(n->mbe, moff, data_size);
-                return NVME_DATA_TRAS_ERROR | NVME_DNR;
+            if (dma_memory_rw(as, prp1, mb + moff, len0, dir,
+                              MEMTXATTRS_UNSPECIFIED)) {
+                return NVME_DNR;
             }
-            if (rem && femu_dma_rw(n, prp2, mb + moff + len0, rem,
-                                   !req->is_write)) {
-                backend_unlock_range(n->mbe, moff, data_size);
-                /* the whole blocks of the first page are in the backend */
-                if (req->is_write) {
-                    nvme_fdp_host_write(n, ns, req->fdp_dtype,
-                                        req->fdp_dspec, len0 >> data_shift,
-                                        true);
-                }
-                return NVME_DATA_TRAS_ERROR | NVME_DNR;
+            if (rem && dma_memory_rw(as, prp2, mb + moff + len0, rem, dir,
+                                     MEMTXATTRS_UNSPECIFIED)) {
+                return NVME_DNR;
             }
-            backend_unlock_range(n->mbe, moff, data_size);
             if (req->is_write) {
                 nvme_mark_written(ns, slba, nlb);
-                nvme_fdp_host_write(n, ns, req->fdp_dtype, req->fdp_dspec,
-                                    nlb, true);
             }
             return NVME_SUCCESS;
         }
     }
 
-    err = nvme_map_prp(&req->qsg, &req->iov, prp1, prp2, data_size, n);
-    if (err) {
-        nvme_set_error_page(n, req->sq->sqid, cmd->cid, err & ~NVME_DNR,
+    if (nvme_map_prp(&req->qsg, &req->iov, prp1, prp2, data_size, n)) {
+        nvme_set_error_page(n, req->sq->sqid, cmd->cid, NVME_INVALID_FIELD,
                             offsetof(NvmeRwCmd, prp1), 0, ns->id);
-        return err;
+        return NVME_INVALID_FIELD | NVME_DNR;
     }
 
 mapped:
-    /*
-     * A data buffer in the controller memory buffer is described by an iovec
-     * rather than a scatter list, and the media path below takes the scatter
-     * list, so the transfer would move nothing. The assertion that the two
-     * agree aborted the process on a guest command instead of refusing it.
-     */
-    if (!req->qsg.nsg) {
-        qemu_iovec_destroy(&req->iov);
-        nvme_set_error_page(n, req->sq->sqid, cmd->cid, NVME_INVALID_FIELD,
-                            offsetof(NvmeRwCmd, prp1), 0, ns->id);
-        return NVME_INVALID_FIELD | NVME_DNR;
-    }
-    if (((uint64_t)nlb << data_shift) != req->qsg.size) {
-        qemu_sglist_destroy(&req->qsg);
-        nvme_set_error_page(n, req->sq->sqid, cmd->cid, NVME_INVALID_FIELD,
-                            offsetof(NvmeRwCmd, prp1), 0, ns->id);
-        return NVME_INVALID_FIELD | NVME_DNR;
-    }
+    assert((nlb << data_shift) == req->qsg.size);
 
     req->slba = slba;
     req->status = NVME_SUCCESS;
@@ -675,30 +550,16 @@ mapped:
         req->fdp_dtype = (le16_to_cpu(rw->control) >> 4) & 0xF;
     }
 
-    /* a read takes a block's data and metadata as one snapshot */
-    if (meta_size) {
-        qemu_mutex_lock(&ns->mdata_lock);
-    }
     ret = backend_rw(n->mbe, &req->qsg, &data_offset, req->is_write);
-    if (!ret && meta_size &&
-        femu_dma_write(n, mptr, ns->mdata + slba * ms, meta_size)) {
-        ret = -EIO;
-    }
-    if (meta_size) {
-        qemu_mutex_unlock(&ns->mdata_lock);
-    }
     if (!ret) {
         if (req->is_write) {
             nvme_mark_written(ns, slba, nlb);
-            nvme_fdp_host_write(n, ns, req->fdp_dtype, req->fdp_dspec, nlb,
-                                true);
         }
         return NVME_SUCCESS;
     }
 
     return NVME_DNR;
 }
-
 
 static uint16_t nvme_dsm(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
                          NvmeRequest *req)
