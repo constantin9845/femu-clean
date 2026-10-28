@@ -674,6 +674,7 @@ static void femu_dbg_scan_secret(struct ssd *ssd, const char *tag)
         fprintf(stderr, "[SCAN:%s] '%s' NOT present in backend\n", tag, sec);
 }
 
+#ifndef HOST_FTL
 /* Track only the LPNs/blocks that carry the marker, to keep the log focused. */
 #define EXP_MAX_WATCH 256
 static uint64_t exp_watch_lpn[EXP_MAX_WATCH];
@@ -697,7 +698,6 @@ static void exp_watch_lpn_add(uint64_t lpn)
 }
 
 /* Does this LPN's backend page currently contain the marker string? */
-#ifndef HOST_FTL
 static bool femu_dbg_lpn_has_secret(struct ssd *ssd, uint64_t lpn)
 {
     const char *sec = exp_secret;
