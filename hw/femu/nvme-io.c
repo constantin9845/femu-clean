@@ -88,16 +88,7 @@ static void nvme_process_sq_io(void *opaque, int index_poller)
     bool inline_mode = (NOSSD(n) && n->hiops_inline) || (HOST_FTL == 1 && sq->sqid > 0);
     bool did_isr = false;
 
-    femu_log("[SQ PROCESS] ENTER qid=%u head=%u tail=%u\n",
-         sq->sqid, sq->head, sq->tail);
-
     nvme_update_sq_tail(sq);
-
-    femu_log("[SQ PROCESS] AFTER UPDATE qid=%u head=%u tail=%u\n",
-            sq->sqid, sq->head, sq->tail);
-
-    femu_log("[SQ PROCESS] EMPTY=%d\n", nvme_sq_empty(sq));
-
     while (!(nvme_sq_empty(sq))) {
         /*
          * Inline mode completes into the CQ within this same sweep, so unlike
@@ -133,12 +124,10 @@ static void nvme_process_sq_io(void *opaque, int index_poller)
                 __builtin_prefetch(&((NvmeCmd *)sq->dma_addr_hva)[nh], 0, 3);
             }
             nvme_copy_cmd(&cmd, (void *)&(((NvmeCmd *)sq->dma_addr_hva)[sq->head]));
-            femu_log("[SQ CMD] qid=%u head=%u opcode=0x%x cid=%u\n",sq->sqid, sq->head, cmd.opcode, cmd.cid);
         } else {
             addr = nvme_discontig(sq->prp_list, sq->head, n->page_size,
                                   n->sqe_size);
             nvme_addr_read(n, addr, (void *)&cmd, sizeof(cmd));
-            femu_log("[SQ CMD] qid=%u head=%u opcode=0x%x cid=%u\n",sq->sqid, sq->head, cmd.opcode, cmd.cid);
         }
         nvme_inc_sq_head(sq);
 
@@ -170,8 +159,6 @@ static void nvme_process_sq_io(void *opaque, int index_poller)
         status = nvme_io_cmd(n, &cmd, req);
         req->status = status;
 
-        femu_log("[SQ CMD RESULT] qid=%u opcode=0x%x cid=%u status=0x%x\n", sq->sqid, cmd.opcode, cmd.cid, status);
-
         if (status != NVME_SUCCESS) {
             /* Clean up DSM ranges on error */
             if (req->dsm_ranges) {
@@ -192,17 +179,6 @@ static void nvme_process_sq_io(void *opaque, int index_poller)
              * leak hazard that the FTL-ring path guards against does not arise.
              */
             NvmeCQueue *cq = n->cq[sq->cqid];
-
-            femu_log("[INLINE CQ] qid=%u cqid=%u cq=%p active=%d "
-                    "tail=%u head=%u\n",
-                    sq->sqid,
-                    sq->cqid,
-                    (void *)cq,
-                    cq ? cq->is_active : -1,
-                    cq ? cq->tail : 0,
-                    cq ? cq->head : 0);
-
-
             if (cq && cq->is_active) {
                 /* CQ space guaranteed by the nvme_cq_full check at loop top */
                 nvme_post_cqe(cq, req);

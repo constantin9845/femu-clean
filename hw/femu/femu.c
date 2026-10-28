@@ -478,26 +478,15 @@ static void nvme_process_db_admin(FemuCtrl *n, hwaddr addr, int val)
 
 static void nvme_process_db_io(FemuCtrl *n, hwaddr addr, int val)
 {
-
-    femu_log(
-        "[DB DEBUG] addr=0x%lx val=0x%x dataplane_started=%d db_stride=%u\n",
-        (unsigned long)addr,
-        val,
-        n->dataplane_started,
-        n->db_stride
-    );
-
     uint32_t qid;
     uint16_t new_val = val & 0xffff;
-    NvmeSQueue *sq = NULL;
+    NvmeSQueue *sq;
 
     if (n->dataplane_started) {
-        femu_log("[DB DEBUG] Ignoring MMIO I/O doorbell: dataplane started\n");
         return;
     }
 
     if (addr & ((1 << (2 + n->db_stride)) - 1)) {
-        femu_log("[DB DEBUG] Ignoring misaligned I/O doorbell address\n");
         return;
     }
 
@@ -536,14 +525,6 @@ static void nvme_process_db_io(FemuCtrl *n, hwaddr addr, int val)
             sq->tail = new_val;
         }
     }
-
-    femu_log(
-        "[DB DEBUG] qid=%u new_tail=%u sq_size=%u db_addr=%p\n",
-        qid,
-        new_val,
-        sq->size,
-        (void *)sq->db_addr
-    );
 }
 
 static void nvme_mmio_write(void *opaque, hwaddr addr, uint64_t data, unsigned size)
