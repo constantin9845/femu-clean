@@ -97,7 +97,10 @@ int backend_rw(SsdDramBackend *b, QEMUSGList *qsg, uint64_t *lbal, bool is_write
         cur_addr = qsg->sg[sg_cur_index].base + sg_cur_byte;
         cur_len = qsg->sg[sg_cur_index].len - sg_cur_byte;
         if (dma_memory_rw(qsg->as, cur_addr, mb + mb_oft, cur_len, dir, MEMTXATTRS_UNSPECIFIED)) {
-            femu_err("dma_memory_rw error\n");
+            femu_err("dma_memory_rw error: off=%" PRIu64 " len=%" PRIu64 " %s\n",
+                     mb_oft, (uint64_t)cur_len, is_write ? "write" : "read");
+            qemu_sglist_destroy(qsg);
+            return -1;
         }
 
         /*
@@ -123,8 +126,7 @@ int backend_rw(SsdDramBackend *b, QEMUSGList *qsg, uint64_t *lbal, bool is_write
         } else if (b->femu_mode == FEMU_BBSSD_MODE ||
                    b->femu_mode == FEMU_NOSSD_MODE ||
                    b->femu_mode == FEMU_ZNSSD_MODE ||
-                   b->femu_mode == FEMU_CSD_MODE ||
-                   HOST_FTL == 1){
+                   b->femu_mode == FEMU_CSD_MODE ){
             mb_oft += cur_len;
         } else {
             assert(0);

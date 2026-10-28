@@ -1987,40 +1987,24 @@ struct ppa_host {
 
 typedef struct ppa_host ppa_t;
 
-// ssd geometry components must be power of 2
-static inline uint64_t ppa_to_dram_offset(FemuCtrl *n, uint64_t raw_ppa, uint8_t lbads){
-    
-    struct ppa_host p;
-    p.ppa = raw_ppa;
+/*
+ * Dense device LBA -> PPA. Must match the host encoder:
+ *   outer -> inner : blk | pg | pl | lun | ch | sec
+ * Consecutive pages stripe across channels, then LUNs.
+ */
+static inline void dev_lba_to_ppa(struct ssd *ssd, uint64_t lba, struct ppa *p)
+{
+    struct ssdparams *spp = &ssd->sp;
 
-    BbCtrlParams *pms = &n->bb_params;
+    p->ppa   = 0;
+    p->g.sec = lba % spp->secs_per_pg;  lba /= spp->secs_per_pg;
+    p->g.ch  = lba % spp->nchs;         lba /= spp->nchs;
+    p->g.lun = lba % spp->luns_per_ch;  lba /= spp->luns_per_ch;
+    p->g.pl  = lba % spp->pls_per_lun;  lba /= spp->pls_per_lun;
+    p->g.pg  = lba % spp->pgs_per_blk;  lba /= spp->pgs_per_blk;
+    p->g.blk = lba;
 
-    uint64_t sec_per_pg  = pms->secs_per_pg;
-    uint64_t sec_per_blk = sec_per_pg  * pms->pgs_per_blk;
-    uint64_t sec_per_pl  = sec_per_blk * pms->blks_per_pl;
-    uint64_t sec_per_lun = sec_per_pl  * pms->pls_per_lun;
-    uint64_t sec_per_ch  = sec_per_lun * pms->luns_per_ch;
-
-    uint64_t lba = ((uint64_t)p.g.ch  * sec_per_ch)  +
-                   ((uint64_t)p.g.lun * sec_per_lun) +
-                   ((uint64_t)p.g.pl  * sec_per_pl)  +
-                   ((uint64_t)p.g.blk * sec_per_blk) +
-                   ((uint64_t)p.g.pg  * sec_per_pg)  +
-                   (uint64_t)p.g.sec;
-
-    uint64_t dram_offset = lba << lbads;
-
-    if (dram_offset >= n->mbe->size) {
-        printf("[OCSSD PPA ERR] LBA: %" PRIu64 " | DRAM Offset: %" PRIu64 
-                 " >= DRAM Size: %" PRIu64 "\n",
-                 lba, dram_offset, (uint64_t)n->mbe->size);
-        printf("   PPA details -> ch:%u lun:%u pl:%u blk:%u pg:%u sec:%u rsv:%u\n",
-                 p.g.ch, p.g.lun, p.g.pl, p.g.blk, p.g.pg, p.g.sec, p.g.rsv);
-    }
-
-    assert(dram_offset < n->mbe->size);
-
-    return dram_offset;
+    ftl_assert(p->g.blk < spp->blks_per_pl);
 }
 
 #endif
