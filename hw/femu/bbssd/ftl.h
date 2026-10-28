@@ -326,6 +326,27 @@ struct ssd {
     FemuCtrl *n;
 };
 
+
+/*
+ * Dense device LBA -> PPA. Must match the host encoder:
+ *   outer -> inner : blk | pg | pl | lun | ch | sec
+ * Consecutive pages stripe across channels, then LUNs.
+ */
+static inline void dev_lba_to_ppa(struct ssd *ssd, uint64_t lba, struct ppa *p)
+{
+    struct ssdparams *spp = &ssd->sp;
+
+    p->ppa   = 0;
+    p->g.sec = lba % spp->secs_per_pg;  lba /= spp->secs_per_pg;
+    p->g.ch  = lba % spp->nchs;         lba /= spp->nchs;
+    p->g.lun = lba % spp->luns_per_ch;  lba /= spp->luns_per_ch;
+    p->g.pl  = lba % spp->pls_per_lun;  lba /= spp->pls_per_lun;
+    p->g.pg  = lba % spp->pgs_per_blk;  lba /= spp->pgs_per_blk;
+    p->g.blk = lba;
+
+    ftl_assert(p->g.blk < spp->blks_per_pl);
+}
+
 void ssd_init(FemuCtrl *n);
 
 #ifdef FEMU_DEBUG_FTL

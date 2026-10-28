@@ -1953,62 +1953,6 @@ static inline uint16_t nvme_check_mdts(FemuCtrl *n, size_t len)
 #define ID_MAX_LEN (4)
 
 
-// Host FTL MODE
-#define HOST_FTL (1)
-
-#if HOST_FTL == 1
-
-#define FEAT_SIZE (4096)
-#define ACT_SIZE (1024)
-
-#define BLK_B   (16)
-#define PG_B    (16)
-#define SEC_B   (8)
-#define PL_B    (4)
-#define LUN_B   (7)
-#define CH_B    (12)
-#define RSV_B   (1)
-
-struct ppa_host {
-    union {
-        struct {
-            uint64_t blk : BLK_B; /* Bit  0..15 : Block ID (65,536 max) */
-            uint64_t pg  : PG_B;  /* Bit 16..31 : Page ID (65,536 max)  */
-            uint64_t sec : SEC_B; /* Bit 32..39 : Sector ID (256 max)   */
-            uint64_t pl  : PL_B;  /* Bit 40..43 : Plane ID (16 max)     */
-            uint64_t lun : LUN_B; /* Bit 44..50 : LUN ID (128 max)      */
-            uint64_t ch  : CH_B;  /* Bit 51..62 : Channel ID (4,096 max)*/
-            uint64_t rsv : RSV_B; /* Bit 63     : Host FTL Flag (1)    */
-        } g;
-
-        uint64_t ppa; /* 64-bit raw scalar representation */
-    };
-};
-
-typedef struct ppa_host ppa_t;
-
-/*
- * Dense device LBA -> PPA. Must match the host encoder:
- *   outer -> inner : blk | pg | pl | lun | ch | sec
- * Consecutive pages stripe across channels, then LUNs.
- */
-static inline void dev_lba_to_ppa(struct ssd *ssd, uint64_t lba, struct ppa *p)
-{
-    struct ssdparams *spp = &ssd->sp;
-
-    p->ppa   = 0;
-    p->g.sec = lba % spp->secs_per_pg;  lba /= spp->secs_per_pg;
-    p->g.ch  = lba % spp->nchs;         lba /= spp->nchs;
-    p->g.lun = lba % spp->luns_per_ch;  lba /= spp->luns_per_ch;
-    p->g.pl  = lba % spp->pls_per_lun;  lba /= spp->pls_per_lun;
-    p->g.pg  = lba % spp->pgs_per_blk;  lba /= spp->pgs_per_blk;
-    p->g.blk = lba;
-
-    ftl_assert(p->g.blk < spp->blks_per_pl);
-}
-
-#endif
-
 //#define FEMU_DEBUG_NVME
 #ifdef FEMU_DEBUG_NVME
 #define femu_debug(fmt, ...) \
