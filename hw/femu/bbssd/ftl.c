@@ -681,7 +681,6 @@ static uint64_t exp_watch_lpn[EXP_MAX_WATCH];
 static int exp_watch_lpn_cnt = 0;
 static uint8_t exp_watch_blk[1 << BLK_BITS]; /* block (line) id -> watched? */
 
-#ifndef HOST_FTL
 static bool exp_lpn_watched(uint64_t lpn)
 {
     for (int i = 0; i < exp_watch_lpn_cnt; i++)
@@ -690,6 +689,7 @@ static bool exp_lpn_watched(uint64_t lpn)
     return false;
 }
 
+#ifndef HOST_FTL
 static void exp_watch_lpn_add(uint64_t lpn)
 {
     if (exp_lpn_watched(lpn))
