@@ -489,7 +489,7 @@ static void nvme_process_db_io(FemuCtrl *n, hwaddr addr, int val)
 
     uint32_t qid;
     uint16_t new_val = val & 0xffff;
-    NvmeSQueue *sq = nullptr;
+    NvmeSQueue *sq = NULL;
 
     if (n->dataplane_started) {
         femu_log("[DB DEBUG] Ignoring MMIO I/O doorbell: dataplane started\n");
