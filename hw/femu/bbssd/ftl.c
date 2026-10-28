@@ -674,13 +674,14 @@ static void femu_dbg_scan_secret(struct ssd *ssd, const char *tag)
         fprintf(stderr, "[SCAN:%s] '%s' NOT present in backend\n", tag, sec);
 }
 
-#ifndef HOST_FTL
+
 /* Track only the LPNs/blocks that carry the marker, to keep the log focused. */
 #define EXP_MAX_WATCH 256
 static uint64_t exp_watch_lpn[EXP_MAX_WATCH];
 static int exp_watch_lpn_cnt = 0;
 static uint8_t exp_watch_blk[1 << BLK_BITS]; /* block (line) id -> watched? */
 
+#ifndef HOST_FTL
 static bool exp_lpn_watched(uint64_t lpn)
 {
     for (int i = 0; i < exp_watch_lpn_cnt; i++)
