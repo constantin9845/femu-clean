@@ -697,6 +697,7 @@ static void exp_watch_lpn_add(uint64_t lpn)
 }
 
 /* Does this LPN's backend page currently contain the marker string? */
+#ifndef HOST_FTL
 static bool femu_dbg_lpn_has_secret(struct ssd *ssd, uint64_t lpn)
 {
     const char *sec = exp_secret;
@@ -720,6 +721,7 @@ static bool femu_dbg_lpn_has_secret(struct ssd *ssd, uint64_t lpn)
             return true;
     return false;
 }
+#endif
 
 static inline struct ssd_channel *get_ch(struct ssd *ssd, struct ppa *ppa)
 {
