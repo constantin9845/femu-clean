@@ -696,8 +696,7 @@ mapped:
         return NVME_SUCCESS;
     }
 
-    /* a bare DNR has a status code of zero, which the host reads as success */
-    return nvme_backend_status(ret);
+    return NVME_DNR;
 }
 
 
