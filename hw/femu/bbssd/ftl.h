@@ -7,6 +7,8 @@
 #define INVALID_LPN     (~(0ULL))
 #define UNMAPPED_PPA    (~(0ULL))
 
+#define HOST_FTL
+
 /* forward declarations for FDP types */
 typedef struct FemuReclaimGroup FemuReclaimGroup;
 typedef struct FemuRuHandle FemuRuHandle;
@@ -327,6 +329,7 @@ struct ssd {
 };
 
 
+#ifdef HOST_FTL
 /*
  * Dense device LBA -> PPA. Must match the host encoder:
  *   outer -> inner : blk | pg | pl | lun | ch | sec
@@ -345,6 +348,7 @@ static inline void dev_lba_to_ppa(struct ssd *ssd, uint64_t lba, struct ppa *p)
     p->g.blk = lba;
 
 }
+#endif
 
 void ssd_init(FemuCtrl *n);
 

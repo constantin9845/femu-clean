@@ -1105,6 +1105,10 @@ static uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
         if (exp_dump_lpn_set && lpn == exp_dump_lpn)
             femu_dbg_dump_lpn(ssd, lpn);
 
+#ifdef HOST_FTL
+        // lpn is the physical page --> skip mapping
+        dev_lba_to_ppa(ssd, lpn * spp->secs_per_pg, &ppa);
+#else
         ppa = get_maptbl_ent(ssd, lpn);
         if (!mapped_ppa(&ppa) || !valid_ppa(ssd, &ppa)) {
             //printf("%s,lpn(%" PRId64 ") not mapped to valid ppa\n", ssd->ssdname, lpn);
@@ -1112,6 +1116,7 @@ static uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
             //ppa.g.ch, ppa.g.lun, ppa.g.blk, ppa.g.pl, ppa.g.pg, ppa.g.sec);
             continue;
         }
+#endif
 
         struct nand_cmd srd;
         srd.type = USER_IO;
@@ -1134,7 +1139,6 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
     struct ppa ppa;
     uint64_t lpn;
     uint64_t curlat = 0, maxlat = 0;
-    int r;
 
     uint64_t size_kb = (len * spp->secsz) / 1024;
     printf("[Write] Size = %lu\n", size_kb);
@@ -1146,6 +1150,20 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
         return 0;
     }
 
+#ifdef HOST_FTL
+    // Host owns placement, mapping and GC
+    for(lpn = start_lpn; lpn <= end_lpn; lpn++){
+        dev_lba_to_ppa(ssd, lpn * spp->secs_per_pg, &ppa);
+        struct nand_cmd swr;
+        swr.type = USER_IO;
+        swr.cmd = NAND_WRITE;
+        swr.stime = req->stime;
+        curlat = ssd_advance_status(ssd, &ppa, &swr);
+        maxlat = (curlat > maxlat) ? curlat : maxlat;
+    }
+    return maxlat;
+#else
+    int r;
     while (should_gc_high(ssd)) {
         /* perform GC here until !should_gc(ssd) */
         r = do_gc(ssd, true);
@@ -1193,6 +1211,7 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
     }
 
     return maxlat;
+#endif
 }
 
 static uint64_t ssd_trim(struct ssd *ssd, NvmeRequest *req)
