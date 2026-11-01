@@ -362,9 +362,9 @@ static void ssd_init_params(struct ssdparams *spp, FemuCtrl *n)
     spp->page_reads = 0;
 
     spp->secsz = n->bb_params.secsz; // 512
-    spp->secs_per_pg = n->bb_params.secs_per_pg; // 8
-    spp->pgs_per_blk = n->bb_params.pgs_per_blk; //256
-    spp->blks_per_pl = n->bb_params.blks_per_pl; /* 256 16GB */
+    spp->secs_per_pg = n->bb_params.secs_per_pg; // 32
+    spp->pgs_per_blk = n->bb_params.pgs_per_blk; //512
+    spp->blks_per_pl = n->bb_params.blks_per_pl; /* 512 256GB */
     spp->pls_per_lun = n->bb_params.pls_per_lun; // 1
     spp->luns_per_ch = n->bb_params.luns_per_ch; // 8
     spp->nchs = n->bb_params.nchs; // 8
