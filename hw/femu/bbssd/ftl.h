@@ -7,7 +7,7 @@
 #define INVALID_LPN     (~(0ULL))
 #define UNMAPPED_PPA    (~(0ULL))
 
-#define HOST_FTL
+//#define HOST_FTL
 
 /* forward declarations for FDP types */
 typedef struct FemuReclaimGroup FemuReclaimGroup;
