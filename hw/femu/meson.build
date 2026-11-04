@@ -4,7 +4,8 @@ system_ss.add(when: 'CONFIG_FEMU_PCI',
                              'nossd/nop.c', 'nand/nand.c',
                              'timing-model/timing.c', 'ocssd/oc12.c',
                              'ocssd/oc20.c', 'zns/zns.c', 'zns/zftl.c',
-                             'bbssd/bb.c', 'bbssd/ftl.c', 'csd/csd.c',
+                             'bbssd/bb.c', 'bbssd/ftl.c', 'bbssd/stats.c',
+                             'csd/csd.c',
                              'lib/pqueue.c', 'lib/rte_ring.c',
                              'backend/dram.c'))
 system_ss.add(when: 'CONFIG_FEMU_CSD_UBPF', if_true: femu_csd_ubpf)

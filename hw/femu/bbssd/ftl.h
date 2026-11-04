@@ -2,6 +2,7 @@
 #define __FEMU_FTL_H
 
 #include "../nvme.h"
+#include "stats.h"
 
 #define INVALID_PPA     (~(0ULL))
 #define INVALID_LPN     (~(0ULL))
@@ -324,6 +325,8 @@ struct ssd {
     uint64_t nruhs;
     bool fdp_enabled;
     bool fdp_debug;    /* enable FDP FTL tracing */
+
+    struct bb_stats stats; /* per-workload stats, FTL thread only */
 
     FemuCtrl *n;
 };

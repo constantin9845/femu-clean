@@ -532,6 +532,8 @@ void ssd_init(FemuCtrl *n)
         ssd_init_write_pointer(ssd);
     }
 
+    bb_stats_init(&ssd->stats, spp->secs_per_pg * spp->secsz);
+
     qemu_thread_create(&ssd->ftl_thread, "FEMU-FTL-Thread", ftl_thread, n,
                        QEMU_THREAD_JOINABLE);
 }
@@ -925,6 +927,8 @@ static void mark_block_free(struct ssd *ssd, struct ppa *ppa)
 
 static void gc_read_page(struct ssd *ssd, struct ppa *ppa)
 {
+    bb_stats_flash_read(&ssd->stats, true);
+
     /* advance ssd status, we don't care about how long it takes */
     if (ssd->sp.enable_gc_delay) {
         struct nand_cmd gcr;
@@ -1092,8 +1096,8 @@ static uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
     uint64_t lpn;
     uint64_t sublat, maxlat = 0;
 
-    uint64_t size_kb = (nsecs * spp->secsz) / 1024;
-    printf("[READ] Size = %lu\n", size_kb);
+    //uint64_t size_kb = (nsecs * spp->secsz) / 1024;
+    //printf("[READ] Size = %lu\n", size_kb);
 
     if (end_lpn >= spp->tt_pgs) {
         ftl_err("read past device geometry: end_lpn=%"PRIu64" tt_pgs=%d\n",
@@ -1127,6 +1131,7 @@ static uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
         srd.stime = req->stime;
         sublat = ssd_advance_status(ssd, &ppa, &srd);
         maxlat = (sublat > maxlat) ? sublat : maxlat;
+        bb_stats_flash_read(&ssd->stats, false);
     }
 
     return maxlat;
@@ -1143,8 +1148,8 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
     uint64_t lpn;
     uint64_t curlat = 0, maxlat = 0;
 
-    uint64_t size_kb = (len * spp->secsz) / 1024;
-    printf("[Write] Size = %lu\n", size_kb);
+    //uint64_t size_kb = (len * spp->secsz) / 1024;
+    //printf("[Write] Size = %lu\n", size_kb);
 
     if (end_lpn >= spp->tt_pgs) {
         ftl_err("write past device geometry: end_lpn=%"PRIu64" tt_pgs=%d\n",
@@ -2975,9 +2980,12 @@ static void *ftl_thread(void *arg)
     ssd->to_poller = n->to_poller;
 
     while (1) {
+        bool did_work = false;
+
         for (i = 1; i <= n->nr_pollers; i++) {
             if (!ssd->to_ftl[i] || !femu_ring_count(ssd->to_ftl[i]))
                 continue;
+            did_work = true;
 
             rc = femu_ring_dequeue(ssd->to_ftl[i], (void *)&req, 1);
             if (rc != 1) {
@@ -3023,6 +3031,14 @@ static void *ftl_thread(void *arg)
             req->reqlat = lat;
             req->expire_time += lat;
 
+            if (req->status == NVME_SUCCESS &&
+                (req->cmd.opcode == NVME_CMD_READ ||
+                 req->cmd.opcode == NVME_CMD_WRITE)) {
+                bb_stats_io_done(&ssd->stats,
+                                 req->cmd.opcode == NVME_CMD_WRITE,
+                                 (uint64_t)req->nlb * ssd->sp.secsz, lat);
+            }
+
             rc = femu_ring_enqueue(ssd->to_poller[i], (void *)&req, 1);
             if (rc != 1) {
                 ftl_err("FTL to_poller enqueue failed\n");
@@ -3048,6 +3064,10 @@ static void *ftl_thread(void *arg)
             } else if (should_gc(ssd)) {
                 do_gc(ssd, false);
             }
+        }
+
+        if (!did_work) {
+            bb_stats_idle_tick(&ssd->stats, n->devname);
         }
     }
 
