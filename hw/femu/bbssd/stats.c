@@ -1,9 +1,10 @@
 #include "../nvme.h"
 #include "stats.h"
 
-#define BB_STATS_DEFAULT_IDLE_SEC 60
+#define BB_STATS_DEFAULT_IDLE_SEC     60
+#define BB_STATS_DEFAULT_INTERVAL_SEC 5
 /* read the clock only every N idle passes of the FTL loop */
-#define BB_STATS_IDLE_POLL_EVERY  4096
+#define BB_STATS_IDLE_POLL_EVERY      4096
 
 #define SUB_BITS  BB_LAT_SUB_BITS
 #define SUB_COUNT (1 << SUB_BITS)
@@ -31,32 +32,80 @@ static uint64_t lat_bucket_high(int idx)
     return low + ((1ULL << shift) - 1);
 }
 
-static void hist_add(struct bb_lat_hist *h, uint64_t v)
-{
-    h->b[lat_bucket(v)]++;
-}
-
 /* p in (0, 1]; result capped at the observed max */
-static uint64_t hist_pct(const struct bb_lat_hist *h, uint64_t count,
-                         uint64_t max, double p)
+static uint64_t acc_pct(const struct bb_io_acc *a, double p)
 {
-    uint64_t target = (uint64_t)(p * count + 0.999999);
+    uint64_t target = (uint64_t)(p * a->cmds + 0.999999);
     uint64_t seen = 0;
 
-    if (count == 0) {
+    if (a->cmds == 0) {
         return 0;
     }
     if (target == 0) {
         target = 1;
     }
     for (int i = 0; i < BB_LAT_BUCKETS; i++) {
-        seen += h->b[i];
+        seen += a->hist.b[i];
         if (seen >= target) {
             uint64_t hi = lat_bucket_high(i);
-            return hi < max ? hi : max;
+            return hi < a->lat_max ? hi : a->lat_max;
         }
     }
-    return max;
+    return a->lat_max;
+}
+
+static void acc_add(struct bb_io_acc *a, uint64_t bytes, uint64_t lat_ns,
+                    uint64_t queue_ns)
+{
+    a->cmds++;
+    a->bytes += bytes;
+    a->lat_sum += lat_ns;
+    a->queue_sum += queue_ns;
+    if (lat_ns > a->lat_max) {
+        a->lat_max = lat_ns;
+    }
+    a->hist.b[lat_bucket(lat_ns)]++;
+}
+
+/* ---- helpers ---- */
+
+static double avg_us(uint64_t sum_ns, uint64_t n)
+{
+    return n ? (double)sum_ns / n / 1000.0 : 0.0;
+}
+
+static double pct(uint64_t part, uint64_t whole)
+{
+    return whole ? 100.0 * part / whole : 0.0;
+}
+
+static uint64_t flash_rd_total(const struct bb_stats *st)
+{
+    return st->c.flash_rd_user + st->c.flash_rd_gc;
+}
+
+static double read_amp(const struct bb_stats *st, uint64_t flash_rd,
+                       uint64_t host_rd_bytes)
+{
+    return host_rd_bytes ?
+        (double)flash_rd * st->page_bytes / host_rd_bytes : 0.0;
+}
+
+static long env_sec(const char *name, long def, bool allow_zero)
+{
+    const char *env = getenv(name);
+    char *end;
+    long v;
+
+    if (!env || !*env) {
+        return def;
+    }
+    v = strtol(env, &end, 10);
+    if (*end != '\0' || v < 0 || (v == 0 && !allow_zero)) {
+        femu_err("stats: ignoring %s=%s\n", name, env);
+        return def;
+    }
+    return v;
 }
 
 /* ---- poller completion counters (written by poller threads) ---- */
@@ -76,37 +125,90 @@ static void poller_totals(FemuCtrl *n, int64_t *tt, int64_t *late)
 
 /* ---- lifecycle ---- */
 
+static void interval_start(struct bb_stats *st, uint64_t now)
+{
+    memset(&st->iv, 0, sizeof(st->iv));
+    st->iv.start_ns = now;
+    st->iv.base_flash_rd = flash_rd_total(st);
+    poller_totals(st->n, &st->iv.base_tt_ios, &st->iv.base_late_ios);
+}
+
 static void bb_stats_reset(struct bb_stats *st)
 {
     memset(&st->c, 0, sizeof(st->c));
+    memset(&st->iv, 0, sizeof(st->iv));
     memset(st->lun_rd, 0, sizeof(uint64_t) * st->nchs * st->luns_per_ch);
 }
 
 void bb_stats_init(struct bb_stats *st, FemuCtrl *n, uint32_t page_bytes,
                    int nchs, int luns_per_ch)
 {
-    const char *env = getenv("FEMU_STATS_IDLE_SEC");
-    long sec = BB_STATS_DEFAULT_IDLE_SEC;
-
-    if (env && *env) {
-        char *end;
-        long v = strtol(env, &end, 10);
-        if (*end == '\0' && v > 0) {
-            sec = v;
-        } else {
-            femu_err("stats: ignoring FEMU_STATS_IDLE_SEC=%s\n", env);
-        }
-    }
+    long idle = env_sec("FEMU_STATS_IDLE_SEC", BB_STATS_DEFAULT_IDLE_SEC,
+                        false);
+    long iv = env_sec("FEMU_STATS_INTERVAL_SEC", BB_STATS_DEFAULT_INTERVAL_SEC,
+                      true);
 
     st->n = n;
-    st->idle_ns = (uint64_t)sec * 1000000000ULL;
+    st->idle_ns = (uint64_t)idle * 1000000000ULL;
+    st->interval_ns = (uint64_t)iv * 1000000000ULL;
     st->page_bytes = page_bytes;
     st->nchs = nchs;
     st->luns_per_ch = luns_per_ch;
     st->lun_rd = g_malloc0(sizeof(uint64_t) * nchs * luns_per_ch);
     bb_stats_reset(st);
-    femu_log("stats: report after %lds of idleness\n", sec);
+    femu_log("stats: log every %lds, report after %lds of idleness\n",
+             iv, idle);
 }
+
+/* ---- periodic log ---- */
+
+static void log_dir(const char *name, const struct bb_io_acc *a, double secs)
+{
+    printf(" | %s %.0f IOPS %.2f MiB/s", name,
+           a->cmds / secs, a->bytes / 1048576.0 / secs);
+    if (a->cmds) {
+        printf(" avg %.1f p99 %.1f us q %.0f%%",
+               avg_us(a->lat_sum, a->cmds), acc_pct(a, 0.99) / 1000.0,
+               pct(a->queue_sum, a->lat_sum));
+    }
+}
+
+/* Print the interval if it is over, then start a new one. */
+static void interval_maybe_log(struct bb_stats *st, uint64_t now)
+{
+    struct bb_stats_iv *iv = &st->iv;
+    int64_t tt, late;
+
+    if (st->interval_ns == 0 || now - iv->start_ns < st->interval_ns) {
+        return;
+    }
+
+    /* stay quiet for intervals with no host I/O (e.g. while going idle) */
+    if (iv->rd.cmds || iv->wr.cmds) {
+        double secs = (double)(now - iv->start_ns) / 1e9;
+        uint64_t flash_rd = flash_rd_total(st) - iv->base_flash_rd;
+
+        poller_totals(st->n, &tt, &late);
+
+        printf("[FEMU stats %s] t=%.0fs",
+               st->n ? st->n->devname : "?",
+               (double)(now - st->c.start_ns) / 1e9);
+        log_dir("rd", &iv->rd, secs);
+        log_dir("wr", &iv->wr, secs);
+        printf(" | flash rd %" PRIu64 " RA %.2f", flash_rd,
+               read_amp(st, flash_rd, iv->rd.bytes));
+        if (tt >= iv->base_tt_ios && late >= iv->base_late_ios) {
+            printf(" | late %.2f%%",
+                   pct(late - iv->base_late_ios, tt - iv->base_tt_ios));
+        }
+        printf("\n");
+        fflush(stdout);
+    }
+
+    interval_start(st, now);
+}
+
+/* ---- host I/O ---- */
 
 void bb_stats_io_done(struct bb_stats *st, bool is_write, uint64_t bytes,
                       uint64_t lat_ns, uint64_t service_ns)
@@ -119,61 +221,40 @@ void bb_stats_io_done(struct bb_stats *st, bool is_write, uint64_t bytes,
         c->active = true;
         c->start_ns = now;
         poller_totals(st->n, &c->base_tt_ios, &c->base_late_ios);
+        interval_start(st, now);
+    } else {
+        interval_maybe_log(st, now);
     }
     c->last_io_ns = now;
     c->idle_polls = 0;
 
     if (is_write) {
-        c->host_wr_cmds++;
-        c->host_wr_bytes += bytes;
-        c->wr_lat_sum += lat_ns;
-        c->wr_queue_sum += queue_ns;
-        if (lat_ns > c->wr_lat_max) {
-            c->wr_lat_max = lat_ns;
-        }
-        hist_add(&c->wr_hist, lat_ns);
+        acc_add(&c->wr, bytes, lat_ns, queue_ns);
+        acc_add(&st->iv.wr, bytes, lat_ns, queue_ns);
     } else {
-        c->host_rd_cmds++;
-        c->host_rd_bytes += bytes;
-        c->rd_lat_sum += lat_ns;
-        c->rd_queue_sum += queue_ns;
-        if (lat_ns > c->rd_lat_max) {
-            c->rd_lat_max = lat_ns;
-        }
-        hist_add(&c->rd_hist, lat_ns);
+        acc_add(&c->rd, bytes, lat_ns, queue_ns);
+        acc_add(&st->iv.rd, bytes, lat_ns, queue_ns);
     }
 }
 
-/* ---- report ---- */
+/* ---- final report ---- */
 
-static double avg_us(uint64_t sum_ns, uint64_t n)
+static void report_latency(const char *name, const struct bb_io_acc *a)
 {
-    return n ? (double)sum_ns / n / 1000.0 : 0.0;
-}
-
-static double pct(uint64_t part, uint64_t whole)
-{
-    return whole ? 100.0 * part / whole : 0.0;
-}
-
-static void report_latency(const char *name, const struct bb_lat_hist *h,
-                           uint64_t cmds, uint64_t sum, uint64_t queue_sum,
-                           uint64_t max)
-{
-    if (cmds == 0) {
+    if (a->cmds == 0) {
         printf("  %-5s: no commands\n", name);
         return;
     }
     printf("  %-5s: avg %.2f  p50 %.2f  p99 %.2f  p99.9 %.2f  max %.2f us\n",
-           name, avg_us(sum, cmds),
-           hist_pct(h, cmds, max, 0.50) / 1000.0,
-           hist_pct(h, cmds, max, 0.99) / 1000.0,
-           hist_pct(h, cmds, max, 0.999) / 1000.0,
-           max / 1000.0);
+           name, avg_us(a->lat_sum, a->cmds),
+           acc_pct(a, 0.50) / 1000.0,
+           acc_pct(a, 0.99) / 1000.0,
+           acc_pct(a, 0.999) / 1000.0,
+           a->lat_max / 1000.0);
     printf("         queueing avg %.2f us (%.1f%% of latency), "
            "NAND avg %.2f us\n",
-           avg_us(queue_sum, cmds), pct(queue_sum, sum),
-           avg_us(sum - queue_sum, cmds));
+           avg_us(a->queue_sum, a->cmds), pct(a->queue_sum, a->lat_sum),
+           avg_us(a->lat_sum - a->queue_sum, a->cmds));
 }
 
 static void report_lun_balance(struct bb_stats *st)
@@ -220,41 +301,37 @@ static void report_lun_balance(struct bb_stats *st)
 static void bb_stats_report(struct bb_stats *st)
 {
     struct bb_stats_ctr *c = &st->c;
-    const char *devname = st->n ? st->n->devname : "?";
-    uint64_t flash_rd = c->flash_rd_user + c->flash_rd_gc;
+    uint64_t flash_rd = flash_rd_total(st);
     double secs = (double)(c->last_io_ns - c->start_ns) / 1e9;
     double host_rd_pages = st->page_bytes ?
-        (double)c->host_rd_bytes / st->page_bytes : 0.0;
-    double ra_total = host_rd_pages > 0 ? flash_rd / host_rd_pages : 0.0;
-    double ra_user = host_rd_pages > 0 ? c->flash_rd_user / host_rd_pages : 0.0;
+        (double)c->rd.bytes / st->page_bytes : 0.0;
     int64_t tt, late;
 
     printf("\n===== FEMU stats [%s] workload done (%.1fs active) =====\n",
-           devname, secs);
+           st->n ? st->n->devname : "?", secs);
 
     printf("Flash page reads   : %" PRIu64 " (host %" PRIu64 ", GC %" PRIu64 ")\n",
            flash_rd, c->flash_rd_user, c->flash_rd_gc);
     printf("Host reads         : %" PRIu64 " cmds, %.2f MiB (%.1f pages of %u B)\n",
-           c->host_rd_cmds, c->host_rd_bytes / 1048576.0, host_rd_pages,
-           st->page_bytes);
+           c->rd.cmds, c->rd.bytes / 1048576.0, host_rd_pages, st->page_bytes);
     printf("Host writes        : %" PRIu64 " cmds, %.2f MiB\n",
-           c->host_wr_cmds, c->host_wr_bytes / 1048576.0);
-    printf("Read amplification : %.3f (host-only %.3f)\n", ra_total, ra_user);
+           c->wr.cmds, c->wr.bytes / 1048576.0);
+    printf("Read amplification : %.3f (host-only %.3f)\n",
+           read_amp(st, flash_rd, c->rd.bytes),
+           read_amp(st, c->flash_rd_user, c->rd.bytes));
 
     if (secs > 0) {
         printf("Throughput         : read %.0f IOPS %.2f MiB/s, "
                "write %.0f IOPS %.2f MiB/s\n",
-               c->host_rd_cmds / secs, c->host_rd_bytes / 1048576.0 / secs,
-               c->host_wr_cmds / secs, c->host_wr_bytes / 1048576.0 / secs);
+               c->rd.cmds / secs, c->rd.bytes / 1048576.0 / secs,
+               c->wr.cmds / secs, c->wr.bytes / 1048576.0 / secs);
     } else {
         printf("Throughput         : n/a (workload too short)\n");
     }
 
     printf("Latency (emulated device time):\n");
-    report_latency("read", &c->rd_hist, c->host_rd_cmds, c->rd_lat_sum,
-                   c->rd_queue_sum, c->rd_lat_max);
-    report_latency("write", &c->wr_hist, c->host_wr_cmds, c->wr_lat_sum,
-                   c->wr_queue_sum, c->wr_lat_max);
+    report_latency("read", &c->rd);
+    report_latency("write", &c->wr);
 
     report_lun_balance(st);
 
@@ -276,13 +353,17 @@ static void bb_stats_report(struct bb_stats *st)
 void bb_stats_idle_tick(struct bb_stats *st)
 {
     struct bb_stats_ctr *c = &st->c;
+    uint64_t now;
 
     if (!c->active || ++c->idle_polls < BB_STATS_IDLE_POLL_EVERY) {
         return;
     }
     c->idle_polls = 0;
 
-    if (qemu_clock_get_ns(QEMU_CLOCK_REALTIME) - c->last_io_ns >= st->idle_ns) {
+    now = qemu_clock_get_ns(QEMU_CLOCK_REALTIME);
+    interval_maybe_log(st, now);
+
+    if (now - c->last_io_ns >= st->idle_ns) {
         bb_stats_report(st);
         bb_stats_reset(st);
     }

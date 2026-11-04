@@ -11,8 +11,9 @@ struct FemuCtrl;
  *
  * Only the FTL thread touches this, so there is no locking. A workload starts
  * at the first host read/write and ends once no I/O has arrived for idle_ns
- * (default 60s, override with FEMU_STATS_IDLE_SEC). At that point the report
- * is printed and the counters are reset for the next workload.
+ * (default 60s, FEMU_STATS_IDLE_SEC). While it runs, a one-line summary of
+ * each interval is printed (default every 5s, FEMU_STATS_INTERVAL_SEC, 0 = off).
+ * At the end, the full report is printed and the counters are reset.
  */
 
 /*
@@ -26,27 +27,34 @@ struct bb_lat_hist {
     uint64_t b[BB_LAT_BUCKETS];
 };
 
-/* Everything that is zeroed at the start of each workload. */
+/* Host command accounting for one direction (read or write). */
+struct bb_io_acc {
+    uint64_t cmds, bytes;
+    uint64_t lat_sum, lat_max;   /* emulated device latency, ns */
+    uint64_t queue_sum;          /* part spent waiting for a busy LUN, ns */
+    struct bb_lat_hist hist;
+};
+
+/* Whole-workload counters, zeroed at the start of each workload. */
 struct bb_stats_ctr {
     bool     active;         /* a workload is in progress */
     uint64_t start_ns;       /* first I/O of the workload */
     uint64_t last_io_ns;     /* most recent I/O */
     uint32_t idle_polls;     /* throttles clock reads while idle */
 
-    uint64_t host_rd_cmds, host_wr_cmds;
-    uint64_t host_rd_bytes, host_wr_bytes;
-
+    struct bb_io_acc rd, wr;
     uint64_t flash_rd_user;  /* flash page reads serving host reads */
     uint64_t flash_rd_gc;    /* flash page reads done by GC */
 
-    /* emulated device latency per command, in ns */
-    uint64_t rd_lat_sum, wr_lat_sum;
-    uint64_t rd_lat_max, wr_lat_max;
-    /* part of the latency spent waiting for a busy LUN, in ns */
-    uint64_t rd_queue_sum, wr_queue_sum;
-    struct bb_lat_hist rd_hist, wr_hist;
-
     /* poller completion counters when the workload started */
+    int64_t  base_tt_ios, base_late_ios;
+};
+
+/* Counters for the current periodic-log interval. */
+struct bb_stats_iv {
+    uint64_t start_ns;
+    struct bb_io_acc rd, wr;
+    uint64_t base_flash_rd;  /* flash_rd_user + flash_rd_gc at interval start */
     int64_t  base_tt_ios, base_late_ios;
 };
 
@@ -54,11 +62,13 @@ struct bb_stats {
     /* fixed at init */
     struct FemuCtrl *n;
     uint64_t idle_ns;        /* idle time that ends a workload */
+    uint64_t interval_ns;    /* periodic log interval, 0 = off */
     uint32_t page_bytes;     /* flash page size */
     int      nchs, luns_per_ch;
     uint64_t *lun_rd;        /* flash page reads per [ch * luns_per_ch + lun] */
 
     struct bb_stats_ctr c;
+    struct bb_stats_iv  iv;
 };
 
 void bb_stats_init(struct bb_stats *st, struct FemuCtrl *n,
@@ -72,7 +82,7 @@ void bb_stats_init(struct bb_stats *st, struct FemuCtrl *n,
 void bb_stats_io_done(struct bb_stats *st, bool is_write, uint64_t bytes,
                       uint64_t lat_ns, uint64_t service_ns);
 
-/* Call when the FTL thread finds no work; prints the report once idle. */
+/* Call when the FTL thread finds no work; prints logs/report when due. */
 void bb_stats_idle_tick(struct bb_stats *st);
 
 /* Call for every flash page read issued to NAND. */
