@@ -532,7 +532,8 @@ void ssd_init(FemuCtrl *n)
         ssd_init_write_pointer(ssd);
     }
 
-    bb_stats_init(&ssd->stats, spp->secs_per_pg * spp->secsz);
+    bb_stats_init(&ssd->stats, n, spp->secs_per_pg * spp->secsz,
+                  spp->nchs, spp->luns_per_ch);
 
     qemu_thread_create(&ssd->ftl_thread, "FEMU-FTL-Thread", ftl_thread, n,
                        QEMU_THREAD_JOINABLE);
@@ -927,7 +928,7 @@ static void mark_block_free(struct ssd *ssd, struct ppa *ppa)
 
 static void gc_read_page(struct ssd *ssd, struct ppa *ppa)
 {
-    bb_stats_flash_read(&ssd->stats, true);
+    bb_stats_flash_read(&ssd->stats, ppa->g.ch, ppa->g.lun, true);
 
     /* advance ssd status, we don't care about how long it takes */
     if (ssd->sp.enable_gc_delay) {
@@ -1131,7 +1132,7 @@ static uint64_t ssd_read(struct ssd *ssd, NvmeRequest *req)
         srd.stime = req->stime;
         sublat = ssd_advance_status(ssd, &ppa, &srd);
         maxlat = (sublat > maxlat) ? sublat : maxlat;
-        bb_stats_flash_read(&ssd->stats, false);
+        bb_stats_flash_read(&ssd->stats, ppa.g.ch, ppa.g.lun, false);
     }
 
     return maxlat;
@@ -3034,9 +3035,11 @@ static void *ftl_thread(void *arg)
             if (req->status == NVME_SUCCESS &&
                 (req->cmd.opcode == NVME_CMD_READ ||
                  req->cmd.opcode == NVME_CMD_WRITE)) {
-                bb_stats_io_done(&ssd->stats,
-                                 req->cmd.opcode == NVME_CMD_WRITE,
-                                 (uint64_t)req->nlb * ssd->sp.secsz, lat);
+                bool is_write = req->cmd.opcode == NVME_CMD_WRITE;
+                bb_stats_io_done(&ssd->stats, is_write,
+                                 (uint64_t)req->nlb * ssd->sp.secsz, lat,
+                                 is_write ? ssd->sp.pg_wr_lat
+                                          : ssd->sp.pg_rd_lat);
             }
 
             rc = femu_ring_enqueue(ssd->to_poller[i], (void *)&req, 1);
@@ -3067,7 +3070,7 @@ static void *ftl_thread(void *arg)
         }
 
         if (!did_work) {
-            bb_stats_idle_tick(&ssd->stats, n->devname);
+            bb_stats_idle_tick(&ssd->stats);
         }
     }
 
