@@ -1350,7 +1350,19 @@ typedef struct NvmeRequest {
     /* FDP (Flexible Data Placement) */
     uint16_t        fdp_dspec;
     uint8_t         fdp_dtype;
+
+    /*
+     * BBSSD HOST_FTL vector I/O (docs/BBSSD-VECTOR-IO.md): list of nr_vec
+     * physical sector addresses. vec is allocated on the first vector command
+     * this request slot handles, reused afterwards, and freed with the SQ.
+     * nr_vec is reset to 0 for every new command.
+     */
+    uint64_t        *vec;
+    uint16_t        nr_vec;
 } NvmeRequest;
+
+#define BB_MAX_VEC          512     /* one 4 KiB page of u64 addresses */
+#define BB_VEC_LIST_ALIGN   4096    /* data starts at this alignment after the list */
 
 typedef struct DMAOff {
     QEMUSGList *qsg;

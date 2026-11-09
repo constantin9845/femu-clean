@@ -249,6 +249,11 @@ uint16_t femu_nvme_rw_check_req(FemuCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
 void nvme_free_sq(NvmeSQueue *sq, FemuCtrl *n)
 {
     n->sq[sq->sqid] = NULL;
+    if (sq->io_req) {
+        for (uint32_t i = 0; i < sq->size; i++) {
+            g_free(sq->io_req[i].vec);
+        }
+    }
     g_free(sq->io_req);
     if (sq->prp_list) {
         g_free(sq->prp_list);

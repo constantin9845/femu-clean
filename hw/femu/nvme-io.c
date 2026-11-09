@@ -146,6 +146,7 @@ static void nvme_process_sq_io(void *opaque, int index_poller)
         req->dsm_ranges = NULL;
         req->dsm_nr_ranges = 0;
         req->dsm_attributes = 0;
+        req->nr_vec = 0;
         /* Coperd: record req->stime at earliest convenience */
         req->expire_time = req->stime = qemu_clock_get_ns(QEMU_CLOCK_REALTIME);
         req->cqe.cid = cmd.cid;

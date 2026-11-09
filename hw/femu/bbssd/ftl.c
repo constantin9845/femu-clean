@@ -1223,6 +1223,75 @@ static uint64_t ssd_write(struct ssd *ssd, NvmeRequest *req)
 #endif
 }
 
+#ifdef HOST_FTL
+/*
+ * Vector read/write (docs/BBSSD-VECTOR-IO.md): req->vec holds req->nr_vec dense
+ * physical sector addresses. Data was already moved at submission; here each
+ * distinct NAND page is charged once (consecutive sectors of one page are
+ * grouped) and the command latency is the slowest page.
+ */
+static uint64_t ssd_vec_rw(struct ssd *ssd, NvmeRequest *req, int nand_cmd)
+{
+    struct ssdparams *spp = &ssd->sp;
+    uint64_t prev_pg = INVALID_LPN;
+    uint64_t lat, maxlat = 0;
+    struct ppa ppa;
+
+    for (uint32_t i = 0; i < req->nr_vec; i++) {
+        uint64_t pg = req->vec[i] / spp->secs_per_pg;
+        if (pg == prev_pg) {
+            continue;
+        }
+        prev_pg = pg;
+
+        dev_lba_to_ppa(ssd, pg * spp->secs_per_pg, &ppa);
+        struct nand_cmd c = {
+            .type = USER_IO,
+            .cmd = nand_cmd,
+            .stime = req->stime,
+        };
+        lat = ssd_advance_status(ssd, &ppa, &c);
+        maxlat = (lat > maxlat) ? lat : maxlat;
+        if (nand_cmd == NAND_READ) {
+            bb_stats_flash_read(&ssd->stats, ppa.g.ch, ppa.g.lun, false);
+        }
+    }
+
+    return maxlat;
+}
+
+/*
+ * Vector erase: each entry is any sector address inside the block to erase;
+ * only its (ch, lun, pl, blk) part is used. Consecutive entries naming the
+ * same block are charged once. Backend data is left as is (the host owns GC).
+ */
+static uint64_t ssd_erase_vec(struct ssd *ssd, NvmeRequest *req)
+{
+    struct ppa ppa, prev = { .ppa = INVALID_PPA };
+    uint64_t lat, maxlat = 0;
+
+    for (uint32_t i = 0; i < req->nr_vec; i++) {
+        dev_lba_to_ppa(ssd, req->vec[i], &ppa);
+        ppa.g.pg = 0;
+        ppa.g.sec = 0;
+        if (ppa.ppa == prev.ppa) {
+            continue;
+        }
+        prev = ppa;
+
+        struct nand_cmd c = {
+            .type = USER_IO,
+            .cmd = NAND_ERASE,
+            .stime = req->stime,
+        };
+        lat = ssd_advance_status(ssd, &ppa, &c);
+        maxlat = (lat > maxlat) ? lat : maxlat;
+    }
+
+    return maxlat;
+}
+#endif /* HOST_FTL */
+
 static uint64_t ssd_trim(struct ssd *ssd, NvmeRequest *req)
 {
     struct ssdparams *spp = &ssd->sp;
@@ -3024,6 +3093,17 @@ static void *ftl_thread(void *arg)
                         lat = ssd_trim(ssd, req);
                     }
                     break;
+#ifdef HOST_FTL
+                case NVME_CMD_OC_WRITE:
+                    lat = ssd_vec_rw(ssd, req, NAND_WRITE);
+                    break;
+                case NVME_CMD_OC_READ:
+                    lat = ssd_vec_rw(ssd, req, NAND_READ);
+                    break;
+                case NVME_CMD_OC_ERASE:
+                    lat = ssd_erase_vec(ssd, req);
+                    break;
+#endif
                 default:
                     ;
                 }
@@ -3034,8 +3114,10 @@ static void *ftl_thread(void *arg)
 
             if (req->status == NVME_SUCCESS &&
                 (req->cmd.opcode == NVME_CMD_READ ||
-                 req->cmd.opcode == NVME_CMD_WRITE)) {
-                bool is_write = req->cmd.opcode == NVME_CMD_WRITE;
+                 req->cmd.opcode == NVME_CMD_WRITE ||
+                 (req->nr_vec && req->cmd.opcode != NVME_CMD_OC_ERASE))) {
+                bool is_write = req->cmd.opcode == NVME_CMD_WRITE ||
+                                req->cmd.opcode == NVME_CMD_OC_WRITE;
                 bb_stats_io_done(&ssd->stats, is_write,
                                  (uint64_t)req->nlb * ssd->sp.secsz, lat,
                                  is_write ? ssd->sp.pg_wr_lat

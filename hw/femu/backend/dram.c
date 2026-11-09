@@ -137,3 +137,75 @@ int backend_rw(SsdDramBackend *b, QEMUSGList *qsg, uint64_t *lbal, bool is_write
 
     return 0;
 }
+
+/*
+ * Vector copy for BBSSD HOST_FTL vector I/O: the guest buffer described by
+ * @qsg holds @skip bytes of address list followed by @nr sectors of data.
+ * Sector k of the data moves to/from backend offset vec[k] << @shift.
+ * Runs of consecutive addresses are copied in one go. Scatter-gather entries
+ * may be of any length; a sector may span two of them.
+ *
+ * Like backend_rw, it destroys @qsg before returning.
+ */
+int backend_rw_vec(SsdDramBackend *b, QEMUSGList *qsg, uint64_t skip,
+                   const uint64_t *vec, uint32_t nr, int shift, bool is_write)
+{
+    DMADirection dir = is_write ? DMA_DIRECTION_TO_DEVICE
+                                : DMA_DIRECTION_FROM_DEVICE;
+    uint8_t *mb = b->logical_space;
+    int idx = 0;
+    dma_addr_t off = skip;
+    uint32_t k = 0;
+    int ret = 0;
+
+    /* skip the address list at the front of the buffer */
+    while (idx < qsg->nsg && off >= qsg->sg[idx].len) {
+        off -= qsg->sg[idx].len;
+        idx++;
+    }
+
+    while (k < nr) {
+        uint32_t run = 1;
+        while (k + run < nr && vec[k + run] == vec[k] + run) {
+            run++;
+        }
+
+        uint64_t mb_oft = vec[k] << shift;
+        uint64_t left = (uint64_t)run << shift;
+        if (mb_oft + left > (uint64_t)b->size) {
+            femu_err("backend_rw_vec: off=%" PRIu64 " len=%" PRIu64
+                     " past backend end\n", mb_oft, left);
+            ret = -1;
+            goto out;
+        }
+
+        while (left) {
+            if (idx >= qsg->nsg) {
+                femu_err("backend_rw_vec: buffer shorter than %u sectors\n", nr);
+                ret = -1;
+                goto out;
+            }
+            dma_addr_t chunk = MIN(left, qsg->sg[idx].len - off);
+            if (dma_memory_rw(qsg->as, qsg->sg[idx].base + off, mb + mb_oft,
+                              chunk, dir, MEMTXATTRS_UNSPECIFIED)) {
+                femu_err("backend_rw_vec: dma error off=%" PRIu64 " len=%"
+                         PRIu64 " %s\n", mb_oft, (uint64_t)chunk,
+                         is_write ? "write" : "read");
+                ret = -1;
+                goto out;
+            }
+            mb_oft += chunk;
+            left -= chunk;
+            off += chunk;
+            if (off == qsg->sg[idx].len) {
+                off = 0;
+                idx++;
+            }
+        }
+        k += run;
+    }
+
+out:
+    qemu_sglist_destroy(qsg);
+    return ret;
+}
